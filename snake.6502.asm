@@ -13,10 +13,10 @@
 ; *   $00 - Frame Counter
 ; *   $01 - Snake Tail Pointer - Points to the Y position address of the snake's current tail
 ; *   $02 - Snake Direction - A value indicating the snake's next direction:
-; *           0001 - #$01 - Right
-; *           0010 - #$02 - Down
-; *           0100 - #$04 - Up
-; *           1000 - #$08 - Left
+; *           #01 - Up
+; *           #02 - Down
+; *           #03 - Left
+; *           #04 - Right
 ; *   $03-$04 - Temporary Snake Segment Data (TSSD)
 ; *           $03 - X
 ; *           $04 - Y
@@ -106,11 +106,16 @@ Forever:
   
  
 
+; ----------------------------------------------------------------------------------------------------------------------
+; NMI
+; An interrupt that occurs once every screen paint
 NMI:
   LDA #00
   STA $2003                   ; set the low byte (00) of the RAM address
   LDA #02
   STA $4014                   ; set the high byte (02) of the RAM address, start the transfer
+
+  JSR ReadController          ; Read the controller buttons and set the snake direction
 
   LDX $00                     ; Get the frame counter
   CPX #60                     ; Have 60 frames gone by yet?
@@ -123,6 +128,66 @@ TickNextFrame:
   INC $00                     ; Increment the frame counter
 
   RTI                         ; return from interrupt 
+; ----------------------------------------------------------------------------------------------------------------------
+
+
+
+; ----------------------------------------------------------------------------------------------------------------------
+; READ CONTROLLER
+; Read which buttons are currently being pressed and set the snake direction accordingly
+ReadController:
+  LDA #$01                    ; Set $4016 to 01 and then 00 to latch the controller buttons
+  STA $4016
+  LDA #$00
+  STA $4016                   ; Finish latching the controller buttons
+
+  LDA $4016                   ; We have to burn a few loads to get to the buttons we want: A
+  LDA $4016                   ; B
+  LDA $4016                   ; Select
+  LDA $4016                   ; Start
+
+  LDA $4016                   ; Up
+  AND #%00000001              ; Clear all but the 0 bit
+  BEQ ReadUpDone              ; If the user is not pressing up, then continue to the next button
+  LDY $02                     ; Read the current snake direction
+  CPY #02                     ; If the current snake direction is Down, then Up is invalid - ignore and continue
+  BEQ ReadUpDone
+  LDY #01                     ; Set the snake direction to Up
+  STY $02
+ReadUpDone:
+
+  LDA $4016                   ; Down
+  AND #%00000001              ; Clear all but the 0 bit
+  BEQ ReadDownDone            ; If the user is not pressing down, then continue to the next button
+  LDY $02                     ; Read the current snake direction
+  CPY #01                     ; If the current snake direction is Up, then Down is invalid - ignore and continue
+  BEQ ReadDownDone
+  LDY #02                     ; Set the snake direction to Down
+  STY $02
+ReadDownDone:
+
+  LDA $4016                   ; Left
+  AND #%00000001              ; Clear all but the 0 bit
+  BEQ ReadLeftDone            ; If the user is not pressing left, then continue to the next button
+  LDY $02                     ; Read the current snake direction
+  CPY #04                     ; If the current snake direction is Right, then Left is invalid - ignore and continue
+  BEQ ReadLeftDone
+  LDY #03                     ; Set the snake direction to Left
+  STY $02
+ReadLeftDone:
+
+  LDA $4016                   ; Right
+  AND #%00000001              ; Clear all but the 0 bit
+  BEQ ReadRightDone           ; If the user is not pressing right, then continue to the next button
+  LDY $02                     ; Read the current snake direction
+  CPY #03                     ; If the current snake direction is Left, then Right is invalid - ignore and continue
+  BEQ ReadRightDone
+  LDY #04                     ; Set the snake direction to Right
+  STY $02
+ReadRightDone:
+  RTS                         ; Return from sub-routine
+; ----------------------------------------------------------------------------------------------------------------------
+
 
 
 ; ----------------------------------------------------------------------------------------------------------------------
@@ -133,13 +198,13 @@ MoveSnake:
   LDX #00                     ; Prime the loop counter
 
   LDY $02                     ; Get the direction to move the snake
+  CPY #01                     ; 1 = Up
+  BEQ MoveSnakeUp
   CPY #02                     ; 2 = Down
   BEQ MoveSnakeDown
-  CPY #03                     ; 3 = Up
-  BEQ MoveSnakeUp
-  CPY #04                     ; 4 = Left
+  CPY #03                     ; 3 = Left
   BEQ MoveSnakeLeft
-                              ; Anything else = Right (1 is assumed)
+                              ; Anything else = Right (4 is assumed)
 
 MoveSnakeRight:
   LDA $0203                   ; X Position
