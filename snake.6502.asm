@@ -12,17 +12,26 @@
 ; * Special Memory Locations:
 ; *   $00 - Frame Counter
 ; *   $01 - Snake Tail Pointer - Points to the Y position address of the snake's current tail
-; *   $02 - Snake Direction - A value indicating the snake's next direction:
-; *           #01 - Up
-; *           #02 - Down
-; *           #03 - Left
-; *           #04 - Right
-; *   $03-$04 - Temporary Snake Segment Data (TSSD)
-; *           $03 - X
-; *           $04 - Y
-; *   $05 - Grow Bit - #$01 if the snake should grow on the next move, otherwise #$00
+; *   $02 - Current Snake Direction - A value indicating the snake's current direction:
+; *           #01 - Up    #03 - Left
+; *           #02 - Down  #04 - Right
+; *   $03 - Next Snake Direction - A value indicating the snake's next direction:
+; *           #01 - Up    #03 - Left
+; *           #02 - Down  #04 - Right
+; *   $04-$07 - Temporary Snake Segment Data (TSSD)
+; *           $04 - X     $06 - Tile Index
+; *           $05 - Y     $07 - Tile Attrs
+; *   $08 - Grow Bit - #$01 if the snake should grow on the next move, otherwise #$00
 ; **********************************************************************************************************************
-
+; * Reference:
+; *   Tile Attribute bits:
+; *     76543210
+; *     |||   ||
+; *     |||   ++- Color Palette of sprite.  Choose which set of 4 from the 16 colors to use
+; *     |||
+; *     ||+------ Priority (0: in front of background; 1: behind background)
+; *     |+------- Flip sprite horizontally
+; *     +-------- Flip sprite vertically
   .inesprg 1                  ; 1x 16KB PRG code
   .ineschr 1                  ; 1x  8KB CHR data
   .inesmap 0                  ; mapper 0 = NROM, no bank swapping
@@ -100,6 +109,7 @@ InitGame:
   STA $01
   LDA #$02
   STA $02                     ; Set the default direction to down
+  STA $03                     ; Set the default direction to down
 
 Forever:
   JMP Forever                 ; jump back to Forever, infinite loop
@@ -153,7 +163,7 @@ ReadController:
   CPY #02                     ; If the current snake direction is Down, then Up is invalid - ignore and continue
   BEQ ReadUpDone
   LDY #01                     ; Set the snake direction to Up
-  STY $02
+  STY $03
 ReadUpDone:
 
   LDA $4016                   ; Down
@@ -163,7 +173,7 @@ ReadUpDone:
   CPY #01                     ; If the current snake direction is Up, then Down is invalid - ignore and continue
   BEQ ReadDownDone
   LDY #02                     ; Set the snake direction to Down
-  STY $02
+  STY $03
 ReadDownDone:
 
   LDA $4016                   ; Left
@@ -173,7 +183,7 @@ ReadDownDone:
   CPY #04                     ; If the current snake direction is Right, then Left is invalid - ignore and continue
   BEQ ReadLeftDone
   LDY #03                     ; Set the snake direction to Left
-  STY $02
+  STY $03
 ReadLeftDone:
 
   LDA $4016                   ; Right
@@ -183,7 +193,7 @@ ReadLeftDone:
   CPY #03                     ; If the current snake direction is Left, then Right is invalid - ignore and continue
   BEQ ReadRightDone
   LDY #04                     ; Set the snake direction to Right
-  STY $02
+  STY $03
 ReadRightDone:
   RTS                         ; Return from sub-routine
 ; ----------------------------------------------------------------------------------------------------------------------
@@ -197,7 +207,7 @@ ReadRightDone:
 MoveSnake:
   LDX #00                     ; Prime the loop counter
 
-  LDY $02                     ; Get the direction to move the snake
+  LDY $03                     ; Get the next direction to move the snake
   CPY #01                     ; 1 = Up
   BEQ MoveSnakeUp
   CPY #02                     ; 2 = Down
@@ -208,57 +218,231 @@ MoveSnake:
 
 MoveSnakeRight:
   LDA $0203                   ; X Position
-  ADC #08                     ; Add 8 Pixels
-  STA $03
-  LDA $0200                   ; Y Position
+  ADC #07                     ; Add 8 Pixels
   STA $04
+  LDA $0200                   ; Y Position
+  STA $05
+  LDA #$11                    ; Use the Left-Right Snake Head
+  STA $06
+  LDA #%01000000              ; Turn the head rightward
+  STA $07
   JMP MoveSnakeLoop
 MoveSnakeDown:
   LDA $0203                   ; X Position
-  STA $03
-  LDA $0200                   ; Y Position
-  ADC #08                     ; Add 8 Pixels
   STA $04
+  LDA $0200                   ; Y Position
+  ADC #07                     ; Add 8 Pixels
+  STA $05
+  LDA #$10                    ; Use the Up-Down Snake Head
+  STA $06
+  LDA #%10000000              ; Turn the head downward
+  STA $07
   JMP MoveSnakeLoop
 MoveSnakeUp:
   LDA $0203                   ; X Position
-  STA $03
+  STA $04
   LDA $0200                   ; Y Position
   SBC #08                     ; Subtract 8 Pixels
-  STA $04
+  STA $05
+  LDA #$10                    ; Use the Up-Down Snake Head
+  STA $06
+  LDA #%00000000              ; Turn the head upward
+  STA $07
   JMP MoveSnakeLoop
 MoveSnakeLeft:
   LDA $0203                   ; X Position
   SBC #08                     ; Subtract 8 Pixels
-  STA $03
-  LDA $0200                   ; Y Position
   STA $04
+  LDA $0200                   ; Y Position
+  STA $05
+  LDA #$11                    ; Use the Left-Right Snake Head
+  STA $06
+  LDA #%00000000              ; Turn the head leftward
+  STA $07
 
 MoveSnakeLoop:                ; Shuffle the segments
-  LDY $0200, X                ; Save the old Y Position
-  LDA $04                     ; Get the new Y Position
-  STA $0200, X                ; Set the new Y Position
-  STY $04                     ; Save the old Y Position for the next segment
 
-  INX
-  INX
+                              ; Update the Y Position:
+  LDY $0200, X                ; - Save the old Y Position
+  LDA $05                     ; - Get the new Y Position
+  STA $0200, X                ; - Set the new Y Position
+  STY $05                     ; - Save the old Y Position for the next segment
   INX
 
-  LDY $0200, X                ; Save the old X Position
-  LDA $03                     ; Get the new X Position
-  STA $0200, X                ; Set the new X Position
-  STY $03                     ; Save the old X Position for the next segment
+  CPX #$01                    ; Updating the tile is tricky. If this segment is NOT the head, then we can just handle it
+  BNE HandleBodyTile          ; like we would the X and Y position. But if it IS the head, then we need to choose the
+                              ; appropriate tile and attributes for the next segment
 
+HandleHeadTile:
+                              ; Update the Tile:
+  LDA $06                     ; - Get the new Tile Index
+  STA $0200, X                ; - Set the new Tile Index
+  INX
+                              ; Update the Tile Attributes:
+  LDA $07                     ; - Get the new Tile Attrs
+  STA $0200, X                ; - Set the new Tile Attrs
+  INX
+
+  JSR ChooseNextBodyTile      ; The logic for choosing the next body tile is too complex to include here, so it's been
+                              ; moved into its own subroutine
+  JMP UpdateXPosition
+
+HandleBodyTile:
+                              ; Update the Tile:
+  LDY $0200, X                ; - Save the old Tile Index
+  LDA $06                     ; - Get the new Tile Index
+  STA $0200, X                ; - Set the new Tile Index
+  STY $06                     ; - Save the old Tile Index for the next segment
+  INX
+                              ; Update the Tile Attributes:
+  LDY $0200, X                ; - Save the old Tile Attrs
+  LDA $07                     ; - Get the new Tile Attrs
+  STA $0200, X                ; - Set the new Tile Attrs
+  STY $07                     ; - Save the old Tile Attrs for the next segment
+  INX
+
+UpdateXPosition:
+                              ; Update the X Position:
+  LDY $0200, X                ; - Save the old X Position
+  LDA $04                     ; - Get the new X Position
+  STA $0200, X                ; - Set the new X Position
+  STY $04                     ; - Save the old X Position for the next segment
   INX
 
   CPX $01
   BNE MoveSnakeLoop
 
+  LDA $03                     ; Now that we're done moving the snake, set the snake's new current direction
+  STA $02
+
   RTS                         ; Return from sub-routine
 ; ----------------------------------------------------------------------------------------------------------------------
-  
-  
-  
+
+
+; ----------------------------------------------------------------------------------------------------------------------
+; CHOOSE NEXT BODY TILE
+; There are several different tiles to choose from and different orientations the tiles could take. The following table
+; lays out the tiles and (H)orizontal and (V)ertical flip bit
+;
+; ┌─────────┬─────────┬────────┬────────┬─────────┐
+; │  / Next │   Up    │  Down  │  Left  │  Right  │
+; │ Current │         │        │        │         │
+; ├─────────┼─────────┼────────┼────────┼─────────┤
+; │ Up      │ T$20    │ --     │ T$12   │ T$12 H  │
+; │ Down    │ --      │ T$20 V │ T$12 V │ T$12 HV │
+; │ Left    │ T$12 HV │ T$12 H │ T$21   │ --      │
+; │ Right   │ T$12 V  │ T$12   │ --     │ T$21 H  │
+; └─────────┴─────────┴────────┴────────┴─────────┘
+;
+ChooseNextBodyTile:
+  LDA $02                     ; The simplest scenario is travelling in a straight line
+  CMP $03
+  BNE NextTileTurn
+
+NextTileStraight:
+  CMP #01
+  BEQ NextTileStraight_Up
+  CMP #02
+  BEQ NextTileStraight_Down
+  CMP #03
+  BEQ NextTileStraight_Left
+  CMP #04
+  BEQ NextTileStraight_Right
+
+NextTileStraight_Up:
+  LDA #$20                    ; Use the Up-Down Snake Body
+  STA $06
+  LDA #%00000000              ; Turn body upward
+  STA $07
+  RTS                         ; Return from sub-routine
+NextTileStraight_Down:
+  LDA #$20                    ; Use the Up-Down Snake Body
+  STA $06
+  LDA #%10000000              ; Turn body downward
+  STA $07
+  RTS                         ; Return from sub-routine
+NextTileStraight_Left:
+  LDA #$21                    ; Use the Left-Right Snake Body
+  STA $06
+  LDA #%00000000              ; Turn body leftward
+  STA $07
+  RTS                         ; Return from sub-routine
+NextTileStraight_Right:
+  LDA #$21                    ; Use the Left-Right Snake Body
+  STA $06
+  LDA #%01000000              ; Turn body rightward
+  STA $07
+  RTS                         ; Return from sub-routine
+
+NextTileTurn:
+  LDA #$12                    ; All of our turns use the same tile. The real complexity comes in knowing how to flip it.
+  STA $06
+
+  LDA $02                     ; Get the current direction
+  CMP #01
+  BEQ NextTileTurn_Up
+  CMP #02
+  BEQ NextTileTurn_Down
+  CMP #03
+  BEQ NextTileTurn_Left
+  CMP #04
+  BEQ NextTileTurn_Right
+
+NextTileTurn_Up:
+  LDA $03                     ; Get the next direction
+  CMP #03
+  BEQ NextTileTurn_UpToLeft
+  CMP #04
+  BEQ NextTileTurn_UpToRight
+
+NextTileTurn_Down:
+  LDA $03                     ; Get the next direction
+  CMP #03
+  BEQ NextTileTurn_DownToLeft
+  CMP #04
+  BEQ NextTileTurn_DownToRight
+
+NextTileTurn_Left:
+  LDA $03                     ; Get the next direction
+  CMP #01
+  BEQ NextTileTurn_LeftToUp
+  CMP #02
+  BEQ NextTileTurn_LeftToDown
+
+NextTileTurn_Right:
+  LDA $03                     ; Get the next direction
+  CMP #01
+  BEQ NextTileTurn_RightToUp
+  CMP #02
+  BEQ NextTileTurn_RightToDown
+
+NextTileTurn_UpToLeft:
+NextTileTurn_RightToDown:
+  LDA #%00000000
+  JMP NextTileTurnDone
+
+NextTileTurn_UpToRight:
+NextTileTurn_LeftToDown:
+  LDA #%01000000
+  JMP NextTileTurnDone
+
+NextTileTurn_DownToLeft:
+NextTileTurn_RightToUp:
+  LDA #%10000000
+  JMP NextTileTurnDone
+
+NextTileTurn_DownToRight:
+NextTileTurn_LeftToUp:
+  LDA #%11000000
+  JMP NextTileTurnDone
+
+NextTileTurnDone:
+  STA $07
+  RTS                         ; Return from sub-routine
+; ----------------------------------------------------------------------------------------------------------------------
+
+
+
   .bank 1
   .org $E000
 palette:
@@ -267,10 +451,10 @@ palette:
 
 sprites:
      ;vert tile attr horiz
-  .db $80, $00, $00, $80      ; sprite 0
-  .db $78, $00, $00, $80      ; sprite 1
-  .db $70, $00, $00, $80      ; sprite 2
-  .db $68, $01, $00, $80      ; sprite 3
+  .db $80, $10, %10000000, $80      ; Snake Head
+  .db $78, $20, %00000000, $80      ; Snake Body
+  .db $70, $20, %00000000, $80      ; Snake Body
+  .db $68, $01, %00000000, $80      ; Apple
 
   .org $FFFA                  ; first of the three vectors starts here
   .dw NMI                     ; when an NMI happens (once per frame if enabled) the 
