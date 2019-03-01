@@ -11,7 +11,8 @@
 ; **********************************************************************************************************************
 ; * Special Memory Locations:
 ; *   $00 - Frame Counter
-; *   $01 - Snake Tail Pointer - Points to the Y position address of the snake's current tail
+; *   $01 - Snake Tail Pointer - An offset representing the first byte of the snake's tail tile. For a snake that is 3
+; *                              tiles long, the offset would be 2 tiles * 4 bytes per tile = 8
 ; *   $02 - Current Snake Direction - A value indicating the snake's current direction:
 ; *           #01 - Up    #03 - Left
 ; *           #02 - Down  #04 - Right
@@ -25,13 +26,15 @@
 ; **********************************************************************************************************************
 ; * Reference:
 ; *   Tile Attribute bits:
-; *     76543210
-; *     |||   ||
-; *     |||   ++- Color Palette of sprite.  Choose which set of 4 from the 16 colors to use
-; *     |||
-; *     ||+------ Priority (0: in front of background; 1: behind background)
-; *     |+------- Flip sprite horizontally
-; *     +-------- Flip sprite vertically
+; *     7 6 5 43 2 10
+; *     | | | ||   ||
+; *     | | | ||   ++- Color Palette of sprite.  Choose which set of 4 from the 16 colors to use
+; *     | | | ++------ CUSTOM: The "direction" of the tile (up = 00, down = 01, left = 10, right = 11)
+; *     | | +--------- Priority (0: in front of background; 1: behind background)
+; *     | +----------- Flip sprite horizontally
+; *     +------------- Flip sprite vertically
+; **********************************************************************************************************************
+
   .inesprg 1                  ; 1x 16KB PRG code
   .ineschr 1                  ; 1x  8KB CHR data
   .inesmap 0                  ; mapper 0 = NROM, no bank swapping
@@ -105,7 +108,7 @@ LoadSpritesLoop:
 InitGame:
   LDA #00                     ; Reset the frame counter to 0
   STA $00 
-  LDA #12                     ; Set the snake's starting length to 3: (3 segments * 4 bytes) - 1
+  LDA #08                     ; The snake starts out at 3 tiles long, so the offset of the tail's first byte is 8
   STA $01
   LDA #$02
   STA $02                     ; Set the default direction to down
@@ -128,7 +131,7 @@ NMI:
   JSR ReadController          ; Read the controller buttons and set the snake direction
 
   LDX $00                     ; Get the frame counter
-  CPX #60                     ; Have 60 frames gone by yet?
+  CPX #30                     ; Have 60 frames gone by yet?
   BNE TickNextFrame           ; If not, skip to the next frame
   LDX #00                     ; If yes, then reset the counter to 0
   STX $00
@@ -312,6 +315,59 @@ UpdateXPosition:
   CPX $01
   BNE MoveSnakeLoop
 
+HandleSnakeTail:
+                              ; Update the Y Position:
+  LDA $05                     ; - Get the new Y Position
+  STA $0200, X                ; - Set the new Y Position... note that we don't need to store the old position because
+                              ;   there are no tiles after the tail
+  INX
+
+  TXA                         ; Start off by assuming that we'll be using the Up-Down Tail Tile
+  TAY                         ; But...
+  LDA #$30                    ; We need the "direction" of the old tile to know which tail tile index to use, so store
+  STA $0200, Y                ; the current byte offset, check the direction, then backtrack to set the tail tile index
+  INX
+
+  LDA $07                     ; - Get the Tile Attrs
+  AND #%00011000              ; - Isolate the "direction" of the tile
+  LSR A                       ; - Shift the bits to the right 3 times so that we end up with a number between #00-#03
+  LSR A
+  LSR A
+  BEQ SnakeTailUp             ; - 00 - the tile is pointing up
+  CMP #01
+  BEQ SnakeTailDown
+  PHA                         ; So it turns out that we need the Left-Right Tail Tile. Push the tile direction onto the
+  LDA #$31                    ; the stack, reset the tile to Left-Right using the Y register, then pull the tile
+  STA $0200, Y                ; direction back into the accumulator and continue setting the tile attributes
+  PLA
+  CMP #02
+  BEQ SnakeTailLeft
+  CMP #03
+  BEQ SnakeTailRight
+
+SnakeTailUp:
+SnakeTailLeft:
+  LDA #%00000000
+  JMP SetSnakeTailAttrs
+
+SnakeTailDown:
+  LDA #%10000000
+  JMP SetSnakeTailAttrs
+
+SnakeTailRight:
+  LDA #%01000000
+  JMP SetSnakeTailAttrs
+
+SetSnakeTailAttrs:
+  STA $0200, X                ; - Set the new Tile Attrs
+  INX
+
+UpdateTailXPosition:
+                              ; Update the X Position:
+  LDA $04                     ; - Get the new X Position
+  STA $0200, X                ; - Set the new X Position
+
+UpdateSnakeDirection:
   LDA $03                     ; Now that we're done moving the snake, set the snake's new current direction
   STA $02
 
@@ -358,19 +414,19 @@ NextTileStraight_Up:
 NextTileStraight_Down:
   LDA #$20                    ; Use the Up-Down Snake Body
   STA $06
-  LDA #%10000000              ; Turn body downward
+  LDA #%10001000              ; Turn body downward
   STA $07
   RTS                         ; Return from sub-routine
 NextTileStraight_Left:
   LDA #$21                    ; Use the Left-Right Snake Body
   STA $06
-  LDA #%00000000              ; Turn body leftward
+  LDA #%00010000              ; Turn body leftward
   STA $07
   RTS                         ; Return from sub-routine
 NextTileStraight_Right:
   LDA #$21                    ; Use the Left-Right Snake Body
   STA $06
-  LDA #%01000000              ; Turn body rightward
+  LDA #%01011000              ; Turn body rightward
   STA $07
   RTS                         ; Return from sub-routine
 
@@ -378,62 +434,66 @@ NextTileTurn:
   LDA #$12                    ; All of our turns use the same tile. The real complexity comes in knowing how to flip it.
   STA $06
 
-  LDA $02                     ; Get the current direction
+  LDA $03                     ; Get the next direction
   CMP #01
-  BEQ NextTileTurn_Up
+  BEQ NextTileTurn_ToUp
   CMP #02
-  BEQ NextTileTurn_Down
+  BEQ NextTileTurn_ToDown
   CMP #03
-  BEQ NextTileTurn_Left
+  BEQ NextTileTurn_ToLeft
   CMP #04
-  BEQ NextTileTurn_Right
+  BEQ NextTileTurn_ToRight
 
-NextTileTurn_Up:
-  LDA $03                     ; Get the next direction
-  CMP #03
-  BEQ NextTileTurn_UpToLeft
-  CMP #04
-  BEQ NextTileTurn_UpToRight
-
-NextTileTurn_Down:
-  LDA $03                     ; Get the next direction
-  CMP #03
-  BEQ NextTileTurn_DownToLeft
-  CMP #04
-  BEQ NextTileTurn_DownToRight
-
-NextTileTurn_Left:
-  LDA $03                     ; Get the next direction
-  CMP #01
+NextTileTurn_ToUp:
+  LDA #%00000000
+  LDY $02                     ; Get the next direction
+  CPY #03
   BEQ NextTileTurn_LeftToUp
-  CMP #02
-  BEQ NextTileTurn_LeftToDown
-
-NextTileTurn_Right:
-  LDA $03                     ; Get the next direction
-  CMP #01
+  CPY #04
   BEQ NextTileTurn_RightToUp
-  CMP #02
+
+NextTileTurn_ToDown:
+  LDA #%00001000
+  LDY $02                     ; Get the next direction
+  CPY #03
+  BEQ NextTileTurn_LeftToDown
+  CPY #04
   BEQ NextTileTurn_RightToDown
+
+NextTileTurn_ToLeft:
+  LDA #%00010000
+  LDY $02                     ; Get the next direction
+  CPY #01
+  BEQ NextTileTurn_UpToLeft
+  CPY #02
+  BEQ NextTileTurn_DownToLeft
+
+NextTileTurn_ToRight:
+  LDA #%00011000
+  LDY $02                     ; Get the next direction
+  CPY #01
+  BEQ NextTileTurn_UpToRight
+  CPY #02
+  BEQ NextTileTurn_DownToRight
 
 NextTileTurn_UpToLeft:
 NextTileTurn_RightToDown:
-  LDA #%00000000
+  ORA #%00000000
   JMP NextTileTurnDone
 
 NextTileTurn_UpToRight:
 NextTileTurn_LeftToDown:
-  LDA #%01000000
+  ORA #%01000000
   JMP NextTileTurnDone
 
 NextTileTurn_DownToLeft:
 NextTileTurn_RightToUp:
-  LDA #%10000000
+  ORA #%10000000
   JMP NextTileTurnDone
 
 NextTileTurn_DownToRight:
 NextTileTurn_LeftToUp:
-  LDA #%11000000
+  ORA #%11000000
   JMP NextTileTurnDone
 
 NextTileTurnDone:
@@ -453,7 +513,7 @@ sprites:
      ;vert tile attr horiz
   .db $80, $10, %10000000, $80      ; Snake Head
   .db $78, $20, %00000000, $80      ; Snake Body
-  .db $70, $20, %00000000, $80      ; Snake Body
+  .db $70, $30, %10000000, $80      ; Snake Tail
   .db $68, $01, %00000000, $80      ; Apple
 
   .org $FFFA                  ; first of the three vectors starts here
