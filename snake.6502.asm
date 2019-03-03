@@ -351,11 +351,8 @@ SnakeTailLeft:
   JMP SetSnakeTailAttrs
 
 SnakeTailDown:
-  LDA #%10000000
-  JMP SetSnakeTailAttrs
-
 SnakeTailRight:
-  LDA #%01000000
+  LDA #%11000000
   JMP SetSnakeTailAttrs
 
 SetSnakeTailAttrs:
