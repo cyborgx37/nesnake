@@ -110,9 +110,9 @@ InitGame:
   STA $00 
   LDA #08                     ; The snake starts out at 3 tiles long, so the offset of the tail's first byte is 8
   STA $01
-  LDA #$02
-  STA $02                     ; Set the default direction to down
-  STA $03                     ; Set the default direction to down
+  LDA #$01
+  STA $02                     ; Set the default direction to Up
+  STA $03                     ; Set the default direction to Up
 
 Forever:
   JMP Forever                 ; jump back to Forever, infinite loop
@@ -220,10 +220,10 @@ MoveSnake:
                               ; Anything else = Right (4 is assumed)
 
 MoveSnakeRight:
-  LDA $0203                   ; X Position
+  LDA $0207                   ; X Position
   ADC #07                     ; Add 8 Pixels
   STA $04
-  LDA $0200                   ; Y Position
+  LDA $0204                   ; Y Position
   STA $05
   LDA #$11                    ; Use the Left-Right Snake Head
   STA $06
@@ -231,9 +231,9 @@ MoveSnakeRight:
   STA $07
   JMP MoveSnakeLoop
 MoveSnakeDown:
-  LDA $0203                   ; X Position
+  LDA $0207                   ; X Position
   STA $04
-  LDA $0200                   ; Y Position
+  LDA $0204                   ; Y Position
   ADC #07                     ; Add 8 Pixels
   STA $05
   LDA #$10                    ; Use the Up-Down Snake Head
@@ -242,9 +242,9 @@ MoveSnakeDown:
   STA $07
   JMP MoveSnakeLoop
 MoveSnakeUp:
-  LDA $0203                   ; X Position
+  LDA $0207                   ; X Position
   STA $04
-  LDA $0200                   ; Y Position
+  LDA $0204                   ; Y Position
   SBC #08                     ; Subtract 8 Pixels
   STA $05
   LDA #$10                    ; Use the Up-Down Snake Head
@@ -253,10 +253,10 @@ MoveSnakeUp:
   STA $07
   JMP MoveSnakeLoop
 MoveSnakeLeft:
-  LDA $0203                   ; X Position
+  LDA $0207                   ; X Position
   SBC #08                     ; Subtract 8 Pixels
   STA $04
-  LDA $0200                   ; Y Position
+  LDA $0204                   ; Y Position
   STA $05
   LDA #$11                    ; Use the Left-Right Snake Head
   STA $06
@@ -266,9 +266,9 @@ MoveSnakeLeft:
 MoveSnakeLoop:                ; Shuffle the segments
 
                               ; Update the Y Position:
-  LDY $0200, X                ; - Save the old Y Position
+  LDY $0204, X                ; - Save the old Y Position
   LDA $05                     ; - Get the new Y Position
-  STA $0200, X                ; - Set the new Y Position
+  STA $0204, X                ; - Set the new Y Position
   STY $05                     ; - Save the old Y Position for the next segment
   INX
 
@@ -279,11 +279,11 @@ MoveSnakeLoop:                ; Shuffle the segments
 HandleHeadTile:
                               ; Update the Tile:
   LDA $06                     ; - Get the new Tile Index
-  STA $0200, X                ; - Set the new Tile Index
+  STA $0204, X                ; - Set the new Tile Index
   INX
                               ; Update the Tile Attributes:
   LDA $07                     ; - Get the new Tile Attrs
-  STA $0200, X                ; - Set the new Tile Attrs
+  STA $0204, X                ; - Set the new Tile Attrs
   INX
 
   JSR ChooseNextBodyTile      ; The logic for choosing the next body tile is too complex to include here, so it's been
@@ -292,23 +292,23 @@ HandleHeadTile:
 
 HandleBodyTile:
                               ; Update the Tile:
-  LDY $0200, X                ; - Save the old Tile Index
+  LDY $0204, X                ; - Save the old Tile Index
   LDA $06                     ; - Get the new Tile Index
-  STA $0200, X                ; - Set the new Tile Index
+  STA $0204, X                ; - Set the new Tile Index
   STY $06                     ; - Save the old Tile Index for the next segment
   INX
                               ; Update the Tile Attributes:
-  LDY $0200, X                ; - Save the old Tile Attrs
+  LDY $0204, X                ; - Save the old Tile Attrs
   LDA $07                     ; - Get the new Tile Attrs
-  STA $0200, X                ; - Set the new Tile Attrs
+  STA $0204, X                ; - Set the new Tile Attrs
   STY $07                     ; - Save the old Tile Attrs for the next segment
   INX
 
 UpdateXPosition:
                               ; Update the X Position:
-  LDY $0200, X                ; - Save the old X Position
+  LDY $0204, X                ; - Save the old X Position
   LDA $04                     ; - Get the new X Position
-  STA $0200, X                ; - Set the new X Position
+  STA $0204, X                ; - Set the new X Position
   STY $04                     ; - Save the old X Position for the next segment
   INX
 
@@ -318,14 +318,14 @@ UpdateXPosition:
 HandleSnakeTail:
                               ; Update the Y Position:
   LDA $05                     ; - Get the new Y Position
-  STA $0200, X                ; - Set the new Y Position... note that we don't need to store the old position because
+  STA $0204, X                ; - Set the new Y Position... note that we don't need to store the old position because
                               ;   there are no tiles after the tail
   INX
 
   TXA                         ; Start off by assuming that we'll be using the Up-Down Tail Tile
   TAY                         ; But...
   LDA #$30                    ; We need the "direction" of the old tile to know which tail tile index to use, so store
-  STA $0200, Y                ; the current byte offset, check the direction, then backtrack to set the tail tile index
+  STA $0204, Y                ; the current byte offset, check the direction, then backtrack to set the tail tile index
   INX
 
   LDA $07                     ; - Get the Tile Attrs
@@ -338,7 +338,7 @@ HandleSnakeTail:
   BEQ SnakeTailDown
   PHA                         ; So it turns out that we need the Left-Right Tail Tile. Push the tile direction onto the
   LDA #$31                    ; the stack, reset the tile to Left-Right using the Y register, then pull the tile
-  STA $0200, Y                ; direction back into the accumulator and continue setting the tile attributes
+  STA $0204, Y                ; direction back into the accumulator and continue setting the tile attributes
   PLA
   CMP #02
   BEQ SnakeTailLeft
@@ -359,13 +359,13 @@ SnakeTailRight:
   JMP SetSnakeTailAttrs
 
 SetSnakeTailAttrs:
-  STA $0200, X                ; - Set the new Tile Attrs
+  STA $0204, X                ; - Set the new Tile Attrs
   INX
 
 UpdateTailXPosition:
                               ; Update the X Position:
   LDA $04                     ; - Get the new X Position
-  STA $0200, X                ; - Set the new X Position
+  STA $0204, X                ; - Set the new X Position
 
 UpdateSnakeDirection:
   LDA $03                     ; Now that we're done moving the snake, set the snake's new current direction
@@ -511,10 +511,10 @@ palette:
 
 sprites:
      ;vert tile attr horiz
-  .db $80, $10, %10000000, $80      ; Snake Head
-  .db $78, $20, %00000000, $80      ; Snake Body
-  .db $70, $30, %10000000, $80      ; Snake Tail
-  .db $68, $01, %00000000, $80      ; Apple
+  .db $80, $01, %00000000, $80      ; Apple
+  .db $68, $10, %00000000, $80      ; Snake Head
+  .db $70, $20, %00000000, $80      ; Snake Body
+  .db $78, $30, %00000000, $80      ; Snake Tail
 
   .org $FFFA                  ; first of the three vectors starts here
   .dw NMI                     ; when an NMI happens (once per frame if enabled) the 
