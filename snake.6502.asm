@@ -1,3 +1,11 @@
+  .inesprg 1                  ; 1x 16KB PRG code
+  .ineschr 1                  ; 1x  8KB CHR data
+  .inesmap 0                  ; mapper 0 = NROM, no bank swapping
+  .inesmir 1                  ; background mirroring
+
+  .bank 0
+  .org $C000 
+
 ; **********************************************************************************************************************
 ; * NESNAKE
 ; *
@@ -11,18 +19,39 @@
 ; **********************************************************************************************************************
 ; * Special Memory Locations:
 ; *   $00 - Frame Counter
+ptr_FRAME_COUNTER EQU $00
 ; *   $01 - Snake Tail Pointer - An offset representing the first byte of the snake's tail tile. For a snake that is 3
 ; *                              tiles long, the offset would be 2 tiles * 4 bytes per tile = 8
+ptr_SNAKE_TAIL EQU $01
 ; *   $02 - Current Snake Direction - A value indicating the snake's current direction:
 ; *           #01 - Up    #03 - Left
 ; *           #02 - Down  #04 - Right
+ptr_SNAKE_DIR_CUR EQU $02
 ; *   $03 - Next Snake Direction - A value indicating the snake's next direction:
 ; *           #01 - Up    #03 - Left
 ; *           #02 - Down  #04 - Right
+ptr_SNAKE_DIR_NXT EQU $03
 ; *   $04-$07 - Temporary Snake Segment Data (TSSD)
 ; *           $04 - X     $06 - Tile Index
 ; *           $05 - Y     $07 - Tile Attrs
-; *   $08 - Grow Bit - #$01 if the snake should grow on the next move, otherwise #$00
+ptr_SNAKE_TMP_X EQU $04
+ptr_SNAKE_TMP_Y EQU $05
+ptr_SNAKE_TMP_TILE EQU $06
+ptr_SNAKE_TMP_ATTR EQU $07
+; *   $08 - Grow Bit - #01 if the snake should grow on the next move, otherwise #$00
+ptr_GROW_FLAG EQU $08
+; *   $0200-$0203 - Apple Sprite
+; *           $0200 - Apple Y
+ptr_APPLE_Y EQU $0200
+; *           $0203 - Apple X
+ptr_APPLE_X EQU $0203
+; *   $0204-$0207 - Snake Head Sprite
+; *           $0200 - Snake Head Y
+ptr_SNAKE_HEAD_Y EQU $0204
+; *           $0203 - Snake Head X
+ptr_SNAKE_HEAD_X EQU $0207
+; *   $4016 - Controller Buttons State - Each read will return a button state then adv to next button
+ptr_BTN_STATE EQU $4016
 ; **********************************************************************************************************************
 ; * Reference:
 ; *   Tile Attribute bits:
@@ -35,13 +64,6 @@
 ; *     +------------- Flip sprite vertically
 ; **********************************************************************************************************************
 
-  .inesprg 1                  ; 1x 16KB PRG code
-  .ineschr 1                  ; 1x  8KB CHR data
-  .inesmap 0                  ; mapper 0 = NROM, no bank swapping
-  .inesmir 1                  ; background mirroring
-
-  .bank 0
-  .org $C000 
 RESET:
   SEI                         ; disable IRQs
   CLD                         ; disable decimal mode
@@ -94,7 +116,7 @@ LoadPalettesLoop:
   LDX #00
 LoadSpritesLoop:
   LDA sprites, X              ; load the next byte of sprite data
-  STA $0200, X                ; store the sprite data
+  STA ptr_APPLE_Y, X          ; store the sprite data
   INX
   CPX #$10
   BNE LoadSpritesLoop         ; if x = $10, 16 bytes copied, all done
@@ -107,12 +129,12 @@ LoadSpritesLoop:
 
 InitGame:
   LDA #00                     ; Reset the frame counter to 0
-  STA $00 
+  STA ptr_FRAME_COUNTER 
   LDA #08                     ; The snake starts out at 3 tiles long, so the offset of the tail's first byte is 8
-  STA $01
+  STA ptr_SNAKE_TAIL
   LDA #$01
-  STA $02                     ; Set the default direction to Up
-  STA $03                     ; Set the default direction to Up
+  STA ptr_SNAKE_DIR_CUR       ; Set the default direction to Up
+  STA ptr_SNAKE_DIR_NXT       ; Set the default direction to Up
 
 Forever:
   JMP Forever                 ; jump back to Forever, infinite loop
@@ -130,15 +152,15 @@ NMI:
 
   JSR ReadController          ; Read the controller buttons and set the snake direction
 
-  LDX $00                     ; Get the frame counter
+  LDX ptr_FRAME_COUNTER       ; Get the frame counter
   CPX #30                     ; Have 60 frames gone by yet?
   BNE TickNextFrame           ; If not, skip to the next frame
   LDX #00                     ; If yes, then reset the counter to 0
-  STX $00
+  STX ptr_FRAME_COUNTER
   JSR MoveSnake               ; Then move the snake
 TickNextFrame:
   ; Tick the frame counter
-  INC $00                     ; Increment the frame counter
+  INC ptr_FRAME_COUNTER       ; Increment the frame counter
 
   RTI                         ; return from interrupt 
 ; ----------------------------------------------------------------------------------------------------------------------
@@ -149,54 +171,54 @@ TickNextFrame:
 ; READ CONTROLLER
 ; Read which buttons are currently being pressed and set the snake direction accordingly
 ReadController:
-  LDA #$01                    ; Set $4016 to 01 and then 00 to latch the controller buttons
-  STA $4016
+  LDA #$01                    ; Set $4016 (ptr_BTN_STATE) to 01 and then 00 to latch the controller buttons
+  STA ptr_BTN_STATE
   LDA #$00
-  STA $4016                   ; Finish latching the controller buttons
+  STA ptr_BTN_STATE           ; Finish latching the controller buttons
 
-  LDA $4016                   ; We have to burn a few loads to get to the buttons we want: A
-  LDA $4016                   ; B
-  LDA $4016                   ; Select
-  LDA $4016                   ; Start
+  LDA ptr_BTN_STATE           ; We have to burn a few loads to get to the buttons we want: A
+  LDA ptr_BTN_STATE           ; B
+  LDA ptr_BTN_STATE           ; Select
+  LDA ptr_BTN_STATE           ; Start
 
-  LDA $4016                   ; Up
+  LDA ptr_BTN_STATE           ; Up
   AND #%00000001              ; Clear all but the 0 bit
   BEQ ReadUpDone              ; If the user is not pressing up, then continue to the next button
-  LDY $02                     ; Read the current snake direction
+  LDY ptr_SNAKE_DIR_CUR       ; Read the current snake direction
   CPY #02                     ; If the current snake direction is Down, then Up is invalid - ignore and continue
   BEQ ReadUpDone
   LDY #01                     ; Set the snake direction to Up
-  STY $03
+  STY ptr_SNAKE_DIR_NXT
 ReadUpDone:
 
-  LDA $4016                   ; Down
+  LDA ptr_BTN_STATE           ; Down
   AND #%00000001              ; Clear all but the 0 bit
   BEQ ReadDownDone            ; If the user is not pressing down, then continue to the next button
-  LDY $02                     ; Read the current snake direction
+  LDY ptr_SNAKE_DIR_CUR       ; Read the current snake direction
   CPY #01                     ; If the current snake direction is Up, then Down is invalid - ignore and continue
   BEQ ReadDownDone
   LDY #02                     ; Set the snake direction to Down
-  STY $03
+  STY ptr_SNAKE_DIR_NXT
 ReadDownDone:
 
-  LDA $4016                   ; Left
+  LDA ptr_BTN_STATE           ; Left
   AND #%00000001              ; Clear all but the 0 bit
   BEQ ReadLeftDone            ; If the user is not pressing left, then continue to the next button
-  LDY $02                     ; Read the current snake direction
+  LDY ptr_SNAKE_DIR_CUR       ; Read the current snake direction
   CPY #04                     ; If the current snake direction is Right, then Left is invalid - ignore and continue
   BEQ ReadLeftDone
   LDY #03                     ; Set the snake direction to Left
-  STY $03
+  STY ptr_SNAKE_DIR_NXT
 ReadLeftDone:
 
-  LDA $4016                   ; Right
+  LDA ptr_BTN_STATE           ; Right
   AND #%00000001              ; Clear all but the 0 bit
   BEQ ReadRightDone           ; If the user is not pressing right, then continue to the next button
-  LDY $02                     ; Read the current snake direction
+  LDY ptr_SNAKE_DIR_CUR       ; Read the current snake direction
   CPY #03                     ; If the current snake direction is Left, then Right is invalid - ignore and continue
   BEQ ReadRightDone
   LDY #04                     ; Set the snake direction to Right
-  STY $03
+  STY ptr_SNAKE_DIR_NXT
 ReadRightDone:
   RTS                         ; Return from sub-routine
 ; ----------------------------------------------------------------------------------------------------------------------
@@ -210,7 +232,7 @@ ReadRightDone:
 MoveSnake:
   LDX #00                     ; Prime the loop counter
 
-  LDY $03                     ; Get the next direction to move the snake
+  LDY ptr_SNAKE_DIR_NXT       ; Get the next direction to move the snake
   CPY #01                     ; 1 = Up
   BEQ MoveSnakeUp
   CPY #02                     ; 2 = Down
@@ -220,56 +242,56 @@ MoveSnake:
                               ; Anything else = Right (4 is assumed)
 
 MoveSnakeRight:
-  LDA $0207                   ; X Position
-  ADC #07                     ; Add 8 Pixels
-  STA $04
-  LDA $0204                   ; Y Position
-  STA $05
+  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD,
+  ADC #07                     ; Adding 8 Pixels
+  STA ptr_SNAKE_TMP_X
+  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD
+  STA ptr_SNAKE_TMP_Y
   LDA #$11                    ; Use the Left-Right Snake Head
-  STA $06
+  STA ptr_SNAKE_TMP_TILE
   LDA #%01000000              ; Turn the head rightward
-  STA $07
+  STA ptr_SNAKE_TMP_ATTR
   JMP MoveSnakeLoop
 MoveSnakeDown:
-  LDA $0207                   ; X Position
-  STA $04
-  LDA $0204                   ; Y Position
-  ADC #07                     ; Add 8 Pixels
-  STA $05
+  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD
+  STA ptr_SNAKE_TMP_X
+  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD,
+  ADC #07                     ; Adding 8 Pixels
+  STA ptr_SNAKE_TMP_Y
   LDA #$10                    ; Use the Up-Down Snake Head
-  STA $06
+  STA ptr_SNAKE_TMP_TILE
   LDA #%10000000              ; Turn the head downward
-  STA $07
+  STA ptr_SNAKE_TMP_ATTR
   JMP MoveSnakeLoop
 MoveSnakeUp:
-  LDA $0207                   ; X Position
-  STA $04
-  LDA $0204                   ; Y Position
-  SBC #08                     ; Subtract 8 Pixels
-  STA $05
+  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD
+  STA ptr_SNAKE_TMP_X
+  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD,
+  SBC #08                     ; Subtracting 8 Pixels
+  STA ptr_SNAKE_TMP_Y
   LDA #$10                    ; Use the Up-Down Snake Head
-  STA $06
+  STA ptr_SNAKE_TMP_TILE
   LDA #%00000000              ; Turn the head upward
-  STA $07
+  STA ptr_SNAKE_TMP_ATTR
   JMP MoveSnakeLoop
 MoveSnakeLeft:
-  LDA $0207                   ; X Position
-  SBC #08                     ; Subtract 8 Pixels
-  STA $04
-  LDA $0204                   ; Y Position
-  STA $05
+  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD,
+  SBC #08                     ; Subtracting 8 Pixels
+  STA ptr_SNAKE_TMP_X
+  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD
+  STA ptr_SNAKE_TMP_Y
   LDA #$11                    ; Use the Left-Right Snake Head
-  STA $06
+  STA ptr_SNAKE_TMP_TILE
   LDA #%00000000              ; Turn the head leftward
-  STA $07
+  STA ptr_SNAKE_TMP_ATTR
 
 MoveSnakeLoop:                ; Shuffle the segments
 
                               ; Update the Y Position:
-  LDY $0204, X                ; - Save the old Y Position
-  LDA $05                     ; - Get the new Y Position
-  STA $0204, X                ; - Set the new Y Position
-  STY $05                     ; - Save the old Y Position for the next segment
+  LDY ptr_SNAKE_HEAD_Y, X     ; - Save the old Y Position
+  LDA ptr_SNAKE_TMP_Y         ; - Get the new Y Position
+  STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Y Position
+  STY ptr_SNAKE_TMP_Y         ; - Save the old Y Position for the next segment
   INX
 
   CPX #$01                    ; Updating the tile is tricky. If this segment is NOT the head, then we can just handle it
@@ -278,12 +300,12 @@ MoveSnakeLoop:                ; Shuffle the segments
 
 HandleHeadTile:
                               ; Update the Tile:
-  LDA $06                     ; - Get the new Tile Index
-  STA $0204, X                ; - Set the new Tile Index
+  LDA ptr_SNAKE_TMP_TILE      ; - Get the new Tile Index
+  STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Tile Index
   INX
                               ; Update the Tile Attributes:
-  LDA $07                     ; - Get the new Tile Attrs
-  STA $0204, X                ; - Set the new Tile Attrs
+  LDA ptr_SNAKE_TMP_ATTR      ; - Get the new Tile Attrs
+  STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Tile Attrs
   INX
 
   JSR ChooseNextBodyTile      ; The logic for choosing the next body tile is too complex to include here, so it's been
@@ -292,43 +314,43 @@ HandleHeadTile:
 
 HandleBodyTile:
                               ; Update the Tile:
-  LDY $0204, X                ; - Save the old Tile Index
-  LDA $06                     ; - Get the new Tile Index
-  STA $0204, X                ; - Set the new Tile Index
-  STY $06                     ; - Save the old Tile Index for the next segment
+  LDY ptr_SNAKE_HEAD_Y, X     ; - Save the old Tile Index
+  LDA ptr_SNAKE_TMP_TILE      ; - Get the new Tile Index
+  STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Tile Index
+  STY ptr_SNAKE_TMP_TILE      ; - Save the old Tile Index for the next segment
   INX
                               ; Update the Tile Attributes:
-  LDY $0204, X                ; - Save the old Tile Attrs
-  LDA $07                     ; - Get the new Tile Attrs
-  STA $0204, X                ; - Set the new Tile Attrs
-  STY $07                     ; - Save the old Tile Attrs for the next segment
+  LDY ptr_SNAKE_HEAD_Y, X     ; - Save the old Tile Attrs
+  LDA ptr_SNAKE_TMP_ATTR      ; - Get the new Tile Attrs
+  STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Tile Attrs
+  STY ptr_SNAKE_TMP_ATTR      ; - Save the old Tile Attrs for the next segment
   INX
 
 UpdateXPosition:
                               ; Update the X Position:
-  LDY $0204, X                ; - Save the old X Position
-  LDA $04                     ; - Get the new X Position
-  STA $0204, X                ; - Set the new X Position
-  STY $04                     ; - Save the old X Position for the next segment
+  LDY ptr_SNAKE_HEAD_Y, X     ; - Save the old X Position
+  LDA ptr_SNAKE_TMP_X         ; - Get the new X Position
+  STA ptr_SNAKE_HEAD_Y, X     ; - Set the new X Position
+  STY ptr_SNAKE_TMP_X         ; - Save the old X Position for the next segment
   INX
 
-  CPX $01
+  CPX ptr_SNAKE_TAIL
   BNE MoveSnakeLoop
 
 HandleSnakeTail:
                               ; Update the Y Position:
-  LDA $05                     ; - Get the new Y Position
-  STA $0204, X                ; - Set the new Y Position... note that we don't need to store the old position because
+  LDA ptr_SNAKE_TMP_Y         ; - Get the new Y Position
+  STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Y Position... note that we don't need to store the old position because
                               ;   there are no tiles after the tail
   INX
 
   TXA                         ; Start off by assuming that we'll be using the Up-Down Tail Tile
   TAY                         ; But...
   LDA #$30                    ; We need the "direction" of the old tile to know which tail tile index to use, so store
-  STA $0204, Y                ; the current byte offset, check the direction, then backtrack to set the tail tile index
+  STA ptr_SNAKE_HEAD_Y, Y     ; the current byte offset, check the direction, then backtrack to set the tail tile index
   INX
 
-  LDA $07                     ; - Get the Tile Attrs
+  LDA ptr_SNAKE_TMP_ATTR      ; - Get the Tile Attrs
   AND #%00011000              ; - Isolate the "direction" of the tile
   LSR A                       ; - Shift the bits to the right 3 times so that we end up with a number between #00-#03
   LSR A
@@ -338,7 +360,7 @@ HandleSnakeTail:
   BEQ SnakeTailDown
   PHA                         ; So it turns out that we need the Left-Right Tail Tile. Push the tile direction onto the
   LDA #$31                    ; the stack, reset the tile to Left-Right using the Y register, then pull the tile
-  STA $0204, Y                ; direction back into the accumulator and continue setting the tile attributes
+  STA ptr_SNAKE_HEAD_Y, Y     ; direction back into the accumulator and continue setting the tile attributes
   PLA
   CMP #02
   BEQ SnakeTailLeft
@@ -356,17 +378,17 @@ SnakeTailRight:
   JMP SetSnakeTailAttrs
 
 SetSnakeTailAttrs:
-  STA $0204, X                ; - Set the new Tile Attrs
+  STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Tile Attrs
   INX
 
 UpdateTailXPosition:
                               ; Update the X Position:
-  LDA $04                     ; - Get the new X Position
-  STA $0204, X                ; - Set the new X Position
+  LDA ptr_SNAKE_TMP_X         ; - Get the new X Position
+  STA ptr_SNAKE_HEAD_Y, X     ; - Set the new X Position
 
 UpdateSnakeDirection:
-  LDA $03                     ; Now that we're done moving the snake, set the snake's new current direction
-  STA $02
+  LDA ptr_SNAKE_DIR_NXT       ; Now that we're done moving the snake, set the snake's new current direction
+  STA ptr_SNAKE_DIR_CUR
 
   RTS                         ; Return from sub-routine
 ; ----------------------------------------------------------------------------------------------------------------------
@@ -388,8 +410,8 @@ UpdateSnakeDirection:
 ; └─────────┴─────────┴────────┴────────┴─────────┘
 ;
 ChooseNextBodyTile:
-  LDA $02                     ; The simplest scenario is travelling in a straight line
-  CMP $03
+  LDA ptr_SNAKE_DIR_CUR       ; The simplest scenario is travelling in a straight line
+  CMP ptr_SNAKE_DIR_NXT
   BNE NextTileTurn
 
 NextTileStraight:
@@ -404,34 +426,34 @@ NextTileStraight:
 
 NextTileStraight_Up:
   LDA #$20                    ; Use the Up-Down Snake Body
-  STA $06
+  STA ptr_SNAKE_TMP_TILE
   LDA #%00000000              ; Turn body upward
-  STA $07
+  STA ptr_SNAKE_TMP_ATTR
   RTS                         ; Return from sub-routine
 NextTileStraight_Down:
   LDA #$20                    ; Use the Up-Down Snake Body
-  STA $06
+  STA ptr_SNAKE_TMP_TILE
   LDA #%10001000              ; Turn body downward
-  STA $07
+  STA ptr_SNAKE_TMP_ATTR
   RTS                         ; Return from sub-routine
 NextTileStraight_Left:
   LDA #$21                    ; Use the Left-Right Snake Body
-  STA $06
+  STA ptr_SNAKE_TMP_TILE
   LDA #%00010000              ; Turn body leftward
-  STA $07
+  STA ptr_SNAKE_TMP_ATTR
   RTS                         ; Return from sub-routine
 NextTileStraight_Right:
   LDA #$21                    ; Use the Left-Right Snake Body
-  STA $06
+  STA ptr_SNAKE_TMP_TILE
   LDA #%01011000              ; Turn body rightward
-  STA $07
+  STA ptr_SNAKE_TMP_ATTR
   RTS                         ; Return from sub-routine
 
 NextTileTurn:
   LDA #$12                    ; All of our turns use the same tile. The real complexity comes in knowing how to flip it.
-  STA $06
+  STA ptr_SNAKE_TMP_TILE
 
-  LDA $03                     ; Get the next direction
+  LDA ptr_SNAKE_DIR_NXT       ; Get the next direction
   CMP #01
   BEQ NextTileTurn_ToUp
   CMP #02
@@ -443,7 +465,7 @@ NextTileTurn:
 
 NextTileTurn_ToUp:
   LDA #%00000000
-  LDY $02                     ; Get the next direction
+  LDY ptr_SNAKE_DIR_CUR       ; Get the next direction
   CPY #03
   BEQ NextTileTurn_LeftToUp
   CPY #04
@@ -451,7 +473,7 @@ NextTileTurn_ToUp:
 
 NextTileTurn_ToDown:
   LDA #%00001000
-  LDY $02                     ; Get the next direction
+  LDY ptr_SNAKE_DIR_CUR       ; Get the next direction
   CPY #03
   BEQ NextTileTurn_LeftToDown
   CPY #04
@@ -459,7 +481,7 @@ NextTileTurn_ToDown:
 
 NextTileTurn_ToLeft:
   LDA #%00010000
-  LDY $02                     ; Get the next direction
+  LDY ptr_SNAKE_DIR_CUR       ; Get the next direction
   CPY #01
   BEQ NextTileTurn_UpToLeft
   CPY #02
@@ -467,7 +489,7 @@ NextTileTurn_ToLeft:
 
 NextTileTurn_ToRight:
   LDA #%00011000
-  LDY $02                     ; Get the next direction
+  LDY ptr_SNAKE_DIR_CUR       ; Get the next direction
   CPY #01
   BEQ NextTileTurn_UpToRight
   CPY #02
@@ -494,7 +516,7 @@ NextTileTurn_LeftToUp:
   JMP NextTileTurnDone
 
 NextTileTurnDone:
-  STA $07
+  STA ptr_SNAKE_TMP_ATTR
   RTS                         ; Return from sub-routine
 ; ----------------------------------------------------------------------------------------------------------------------
 
