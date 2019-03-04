@@ -135,6 +135,8 @@ InitGame:
   LDA #$01
   STA ptr_SNAKE_DIR_CUR       ; Set the default direction to Up
   STA ptr_SNAKE_DIR_NXT       ; Set the default direction to Up
+  LDA #00
+  STA ptr_GROW_FLAG           ; Set the grow flag to 0
 
 Forever:
   JMP Forever                 ; jump back to Forever, infinite loop
@@ -230,6 +232,44 @@ ReadRightDone:
 ; Begin by calculating the head's new position, then shuffle the head into that position, then the second segment into
 ; the head's former position, then the third segment into the second's former position, etc.
 MoveSnake:
+  LDA ptr_GROW_FLAG           ; Get the current snake tail pointer
+  BEQ ReadNextSnakeDirection  ; If it's 0, then just continue on with shuffling the snake
+  PHA                         ; Store the grow flag value for later
+
+GrowSnake:
+  LDX ptr_SNAKE_TAIL          ; Kick off X at the snake tail offset
+  LDA ptr_SNAKE_HEAD_Y, X     ; Copy the tail sprite info to seed the new tail
+  STA ptr_SNAKE_TMP_Y
+  INX
+  LDA ptr_SNAKE_HEAD_Y, X
+  STA ptr_SNAKE_TMP_TILE
+  INX
+  LDA ptr_SNAKE_HEAD_Y, X
+  STA ptr_SNAKE_TMP_ATTR
+  INX
+  LDA ptr_SNAKE_HEAD_Y, X
+  STA ptr_SNAKE_TMP_X
+  INX
+
+  LDA ptr_SNAKE_TMP_Y         ; Seed the new tail Y
+  STA ptr_SNAKE_HEAD_Y, X
+  INX
+  LDA #01      ; Seed the new tail Tile
+  STA ptr_SNAKE_HEAD_Y, X
+  INX
+  LDA ptr_SNAKE_TMP_ATTR      ; Seed the new tail Tile Attr
+  STA ptr_SNAKE_HEAD_Y, X
+  INX
+  LDA ptr_SNAKE_TMP_X         ; Seed the new tail X
+  STA ptr_SNAKE_HEAD_Y, X
+
+  PLA                         ; Retrieve the grow flag value from earlier
+  CLC
+  ADC ptr_SNAKE_TAIL          ; Add the grow flag value (4) to the snake tail pointer and set tail pointer to the result
+  STA ptr_SNAKE_TAIL          ; This is how we grow the snake's sprite array
+
+
+ReadNextSnakeDirection:
   LDX #00                     ; Prime the loop counter
 
   LDY ptr_SNAKE_DIR_NXT       ; Get the next direction to move the snake
@@ -243,7 +283,8 @@ MoveSnake:
 
 MoveSnakeRight:
   LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD,
-  ADC #07                     ; Adding 8 Pixels
+  CLC
+  ADC #08                     ; Adding 8 Pixels
   STA ptr_SNAKE_TMP_X
   LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD
   STA ptr_SNAKE_TMP_Y
@@ -256,7 +297,8 @@ MoveSnakeDown:
   LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD
   STA ptr_SNAKE_TMP_X
   LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD,
-  ADC #07                     ; Adding 8 Pixels
+  CLC
+  ADC #08                     ; Adding 8 Pixels
   STA ptr_SNAKE_TMP_Y
   LDA #$10                    ; Use the Up-Down Snake Head
   STA ptr_SNAKE_TMP_TILE
@@ -337,6 +379,12 @@ UpdateXPosition:
   CPX ptr_SNAKE_TAIL
   BNE MoveSnakeLoop
 
+  LDA ptr_GROW_FLAG           ; Check the grow bit. If we're not growing (the normal case) then just handle the tail
+  BEQ HandleSnakeTail         ; like we would the rest of the body. But, if the grow bit is set, then we've already
+                              ; added the new body segment and the tail should just stay in place.
+  LDA #00                     ; Reset the value of the grow flag to 0
+  STA ptr_GROW_FLAG
+
 HandleSnakeTail:
                               ; Update the Y Position:
   LDA ptr_SNAKE_TMP_Y         ; - Get the new Y Position
@@ -352,6 +400,7 @@ HandleSnakeTail:
 
   LDA ptr_SNAKE_TMP_ATTR      ; - Get the Tile Attrs
   AND #%00011000              ; - Isolate the "direction" of the tile
+  PHA                         ; Keep the custom Tile Attrs for later use
   LSR A                       ; - Shift the bits to the right 3 times so that we end up with a number between #00-#03
   LSR A
   LSR A
@@ -369,12 +418,13 @@ HandleSnakeTail:
 
 SnakeTailUp:
 SnakeTailLeft:
-  LDA #%00000000
+  PLA                         ; Get the custom attributes. We don't need any others.
   JMP SetSnakeTailAttrs
 
 SnakeTailDown:
 SnakeTailRight:
-  LDA #%11000000
+  PLA                         ; Get the custom attributes.
+  ORA #%11000000              ; Merge in the flip bits
   JMP SetSnakeTailAttrs
 
 SetSnakeTailAttrs:
