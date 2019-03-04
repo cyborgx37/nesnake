@@ -34,10 +34,10 @@ ptr_SNAKE_DIR_NXT EQU $03
 ; *   $04-$07 - Temporary Snake Segment Data (TSSD)
 ; *           $04 - X     $06 - Tile Index
 ; *           $05 - Y     $07 - Tile Attrs
-ptr_SNAKE_TMP_X EQU $04
-ptr_SNAKE_TMP_Y EQU $05
-ptr_SNAKE_TMP_TILE EQU $06
-ptr_SNAKE_TMP_ATTR EQU $07
+ptr_SNAKE_TSSD_X EQU $04
+ptr_SNAKE_TSSD_Y EQU $05
+ptr_SNAKE_TSSD_TILE EQU $06
+ptr_SNAKE_TSSD_ATTR EQU $07
 ; *   $08 - Grow Bit - #01 if the snake should grow on the next move, otherwise #$00
 ptr_GROW_FLAG EQU $08
 ; *   $0200-$0203 - Apple Sprite
@@ -239,28 +239,28 @@ MoveSnake:
 GrowSnake:
   LDX ptr_SNAKE_TAIL          ; Kick off X at the snake tail offset
   LDA ptr_SNAKE_HEAD_Y, X     ; Copy the tail sprite info to seed the new tail
-  STA ptr_SNAKE_TMP_Y
+  STA ptr_SNAKE_TSSD_Y
   INX
   LDA ptr_SNAKE_HEAD_Y, X
-  STA ptr_SNAKE_TMP_TILE
+  STA ptr_SNAKE_TSSD_TILE
   INX
   LDA ptr_SNAKE_HEAD_Y, X
-  STA ptr_SNAKE_TMP_ATTR
+  STA ptr_SNAKE_TSSD_ATTR
   INX
   LDA ptr_SNAKE_HEAD_Y, X
-  STA ptr_SNAKE_TMP_X
+  STA ptr_SNAKE_TSSD_X
   INX
 
-  LDA ptr_SNAKE_TMP_Y         ; Seed the new tail Y
+  LDA ptr_SNAKE_TSSD_Y        ; Seed the new tail Y
   STA ptr_SNAKE_HEAD_Y, X
   INX
   LDA #01      ; Seed the new tail Tile
   STA ptr_SNAKE_HEAD_Y, X
   INX
-  LDA ptr_SNAKE_TMP_ATTR      ; Seed the new tail Tile Attr
+  LDA ptr_SNAKE_TSSD_ATTR     ; Seed the new tail Tile Attr
   STA ptr_SNAKE_HEAD_Y, X
   INX
-  LDA ptr_SNAKE_TMP_X         ; Seed the new tail X
+  LDA ptr_SNAKE_TSSD_X        ; Seed the new tail X
   STA ptr_SNAKE_HEAD_Y, X
 
   PLA                         ; Retrieve the grow flag value from earlier
@@ -285,55 +285,55 @@ MoveSnakeRight:
   LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD,
   CLC
   ADC #08                     ; Adding 8 Pixels
-  STA ptr_SNAKE_TMP_X
+  STA ptr_SNAKE_TSSD_X
   LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD
-  STA ptr_SNAKE_TMP_Y
+  STA ptr_SNAKE_TSSD_Y
   LDA #$11                    ; Use the Left-Right Snake Head
-  STA ptr_SNAKE_TMP_TILE
+  STA ptr_SNAKE_TSSD_TILE
   LDA #%01000000              ; Turn the head rightward
-  STA ptr_SNAKE_TMP_ATTR
+  STA ptr_SNAKE_TSSD_ATTR
   JMP MoveSnakeLoop
 MoveSnakeDown:
   LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD
-  STA ptr_SNAKE_TMP_X
+  STA ptr_SNAKE_TSSD_X
   LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD,
   CLC
   ADC #08                     ; Adding 8 Pixels
-  STA ptr_SNAKE_TMP_Y
+  STA ptr_SNAKE_TSSD_Y
   LDA #$10                    ; Use the Up-Down Snake Head
-  STA ptr_SNAKE_TMP_TILE
+  STA ptr_SNAKE_TSSD_TILE
   LDA #%10000000              ; Turn the head downward
-  STA ptr_SNAKE_TMP_ATTR
+  STA ptr_SNAKE_TSSD_ATTR
   JMP MoveSnakeLoop
 MoveSnakeUp:
   LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD
-  STA ptr_SNAKE_TMP_X
+  STA ptr_SNAKE_TSSD_X
   LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD,
   SBC #08                     ; Subtracting 8 Pixels
-  STA ptr_SNAKE_TMP_Y
+  STA ptr_SNAKE_TSSD_Y
   LDA #$10                    ; Use the Up-Down Snake Head
-  STA ptr_SNAKE_TMP_TILE
+  STA ptr_SNAKE_TSSD_TILE
   LDA #%00000000              ; Turn the head upward
-  STA ptr_SNAKE_TMP_ATTR
+  STA ptr_SNAKE_TSSD_ATTR
   JMP MoveSnakeLoop
 MoveSnakeLeft:
   LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD,
   SBC #08                     ; Subtracting 8 Pixels
-  STA ptr_SNAKE_TMP_X
+  STA ptr_SNAKE_TSSD_X
   LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD
-  STA ptr_SNAKE_TMP_Y
+  STA ptr_SNAKE_TSSD_Y
   LDA #$11                    ; Use the Left-Right Snake Head
-  STA ptr_SNAKE_TMP_TILE
+  STA ptr_SNAKE_TSSD_TILE
   LDA #%00000000              ; Turn the head leftward
-  STA ptr_SNAKE_TMP_ATTR
+  STA ptr_SNAKE_TSSD_ATTR
 
 MoveSnakeLoop:                ; Shuffle the segments
 
                               ; Update the Y Position:
   LDY ptr_SNAKE_HEAD_Y, X     ; - Save the old Y Position
-  LDA ptr_SNAKE_TMP_Y         ; - Get the new Y Position
+  LDA ptr_SNAKE_TSSD_Y        ; - Get the new Y Position
   STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Y Position
-  STY ptr_SNAKE_TMP_Y         ; - Save the old Y Position for the next segment
+  STY ptr_SNAKE_TSSD_Y        ; - Save the old Y Position for the next segment
   INX
 
   CPX #$01                    ; Updating the tile is tricky. If this segment is NOT the head, then we can just handle it
@@ -342,11 +342,11 @@ MoveSnakeLoop:                ; Shuffle the segments
 
 HandleHeadTile:
                               ; Update the Tile:
-  LDA ptr_SNAKE_TMP_TILE      ; - Get the new Tile Index
+  LDA ptr_SNAKE_TSSD_TILE     ; - Get the new Tile Index
   STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Tile Index
   INX
                               ; Update the Tile Attributes:
-  LDA ptr_SNAKE_TMP_ATTR      ; - Get the new Tile Attrs
+  LDA ptr_SNAKE_TSSD_ATTR     ; - Get the new Tile Attrs
   STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Tile Attrs
   INX
 
@@ -357,23 +357,23 @@ HandleHeadTile:
 HandleBodyTile:
                               ; Update the Tile:
   LDY ptr_SNAKE_HEAD_Y, X     ; - Save the old Tile Index
-  LDA ptr_SNAKE_TMP_TILE      ; - Get the new Tile Index
+  LDA ptr_SNAKE_TSSD_TILE     ; - Get the new Tile Index
   STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Tile Index
-  STY ptr_SNAKE_TMP_TILE      ; - Save the old Tile Index for the next segment
+  STY ptr_SNAKE_TSSD_TILE     ; - Save the old Tile Index for the next segment
   INX
                               ; Update the Tile Attributes:
   LDY ptr_SNAKE_HEAD_Y, X     ; - Save the old Tile Attrs
-  LDA ptr_SNAKE_TMP_ATTR      ; - Get the new Tile Attrs
+  LDA ptr_SNAKE_TSSD_ATTR     ; - Get the new Tile Attrs
   STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Tile Attrs
-  STY ptr_SNAKE_TMP_ATTR      ; - Save the old Tile Attrs for the next segment
+  STY ptr_SNAKE_TSSD_ATTR     ; - Save the old Tile Attrs for the next segment
   INX
 
 UpdateXPosition:
                               ; Update the X Position:
   LDY ptr_SNAKE_HEAD_Y, X     ; - Save the old X Position
-  LDA ptr_SNAKE_TMP_X         ; - Get the new X Position
+  LDA ptr_SNAKE_TSSD_X        ; - Get the new X Position
   STA ptr_SNAKE_HEAD_Y, X     ; - Set the new X Position
-  STY ptr_SNAKE_TMP_X         ; - Save the old X Position for the next segment
+  STY ptr_SNAKE_TSSD_X        ; - Save the old X Position for the next segment
   INX
 
   CPX ptr_SNAKE_TAIL
@@ -387,7 +387,7 @@ UpdateXPosition:
 
 HandleSnakeTail:
                               ; Update the Y Position:
-  LDA ptr_SNAKE_TMP_Y         ; - Get the new Y Position
+  LDA ptr_SNAKE_TSSD_Y        ; - Get the new Y Position
   STA ptr_SNAKE_HEAD_Y, X     ; - Set the new Y Position... note that we don't need to store the old position because
                               ;   there are no tiles after the tail
   INX
@@ -398,7 +398,7 @@ HandleSnakeTail:
   STA ptr_SNAKE_HEAD_Y, Y     ; the current byte offset, check the direction, then backtrack to set the tail tile index
   INX
 
-  LDA ptr_SNAKE_TMP_ATTR      ; - Get the Tile Attrs
+  LDA ptr_SNAKE_TSSD_ATTR     ; - Get the Tile Attrs
   AND #%00011000              ; - Isolate the "direction" of the tile
   PHA                         ; Keep the custom Tile Attrs for later use
   LSR A                       ; - Shift the bits to the right 3 times so that we end up with a number between #00-#03
@@ -433,7 +433,7 @@ SetSnakeTailAttrs:
 
 UpdateTailXPosition:
                               ; Update the X Position:
-  LDA ptr_SNAKE_TMP_X         ; - Get the new X Position
+  LDA ptr_SNAKE_TSSD_X        ; - Get the new X Position
   STA ptr_SNAKE_HEAD_Y, X     ; - Set the new X Position
 
 UpdateSnakeDirection:
@@ -476,32 +476,32 @@ NextTileStraight:
 
 NextTileStraight_Up:
   LDA #$20                    ; Use the Up-Down Snake Body
-  STA ptr_SNAKE_TMP_TILE
+  STA ptr_SNAKE_TSSD_TILE
   LDA #%00000000              ; Turn body upward
-  STA ptr_SNAKE_TMP_ATTR
+  STA ptr_SNAKE_TSSD_ATTR
   RTS                         ; Return from sub-routine
 NextTileStraight_Down:
   LDA #$20                    ; Use the Up-Down Snake Body
-  STA ptr_SNAKE_TMP_TILE
+  STA ptr_SNAKE_TSSD_TILE
   LDA #%10001000              ; Turn body downward
-  STA ptr_SNAKE_TMP_ATTR
+  STA ptr_SNAKE_TSSD_ATTR
   RTS                         ; Return from sub-routine
 NextTileStraight_Left:
   LDA #$21                    ; Use the Left-Right Snake Body
-  STA ptr_SNAKE_TMP_TILE
+  STA ptr_SNAKE_TSSD_TILE
   LDA #%00010000              ; Turn body leftward
-  STA ptr_SNAKE_TMP_ATTR
+  STA ptr_SNAKE_TSSD_ATTR
   RTS                         ; Return from sub-routine
 NextTileStraight_Right:
   LDA #$21                    ; Use the Left-Right Snake Body
-  STA ptr_SNAKE_TMP_TILE
+  STA ptr_SNAKE_TSSD_TILE
   LDA #%01011000              ; Turn body rightward
-  STA ptr_SNAKE_TMP_ATTR
+  STA ptr_SNAKE_TSSD_ATTR
   RTS                         ; Return from sub-routine
 
 NextTileTurn:
   LDA #$12                    ; All of our turns use the same tile. The real complexity comes in knowing how to flip it.
-  STA ptr_SNAKE_TMP_TILE
+  STA ptr_SNAKE_TSSD_TILE
 
   LDA ptr_SNAKE_DIR_NXT       ; Get the next direction
   CMP #01
@@ -566,7 +566,7 @@ NextTileTurn_LeftToUp:
   JMP NextTileTurnDone
 
 NextTileTurnDone:
-  STA ptr_SNAKE_TMP_ATTR
+  STA ptr_SNAKE_TSSD_ATTR
   RTS                         ; Return from sub-routine
 ; ----------------------------------------------------------------------------------------------------------------------
 
