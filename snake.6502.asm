@@ -18,8 +18,10 @@
 ; * Created: Feb 24, 2019
 ; **********************************************************************************************************************
 ; * Special Memory Locations:
-; *   $00 - Frame Counter
+; *   $00 - Frame Counter / Collision Flag - The frame counter is reset to 0 whenever the snake moves, so we can reuse
+;                                            this memory for calculating coliision types
 ptr_FRAME_COUNTER EQU $00
+ptr_COLLISION_FLAG EQU $00
 ; *   $01 - Snake Tail Pointer - An offset representing the first byte of the snake's tail tile. For a snake that is 3
 ; *                              tiles long, the offset would be 2 tiles * 4 bytes per tile = 8
 ptr_SNAKE_TAIL EQU $01
@@ -38,8 +40,13 @@ ptr_SNAKE_TSSD_X EQU $04
 ptr_SNAKE_TSSD_Y EQU $05
 ptr_SNAKE_TSSD_TILE EQU $06
 ptr_SNAKE_TSSD_ATTR EQU $07
-; *   $08 - Grow Bit - #01 if the snake should grow on the next move, otherwise #$00
-ptr_GROW_FLAG EQU $08
+; *   $08 - Game Flags - Various game flags to communicate critical changes in state
+;       Flag Reference:
+;         7 6 5 4 3 2 1 0
+;                   |
+;                   +-------- Grow Bit - If 1, the snake should grow by one segment
+ptr_GAME_FLAGS EQU $08
+flag_GROW EQU %00000100
 ; *   $0200-$0203 - Apple Sprite
 ; *           $0200 - Apple Y
 ptr_APPLE_Y EQU $0200
@@ -136,7 +143,7 @@ InitGame:
   STA ptr_SNAKE_DIR_CUR       ; Set the default direction to Up
   STA ptr_SNAKE_DIR_NXT       ; Set the default direction to Up
   LDA #00
-  STA ptr_GROW_FLAG           ; Set the grow flag to 0
+  STA ptr_GAME_FLAGS          ; Set the grow flag to 0
 
 Forever:
   JMP Forever                 ; jump back to Forever, infinite loop
@@ -157,9 +164,9 @@ NMI:
   LDX ptr_FRAME_COUNTER       ; Get the frame counter
   CPX #30                     ; Have 60 frames gone by yet?
   BNE TickNextFrame           ; If not, skip to the next frame
-  LDX #00                     ; If yes, then reset the counter to 0
+  JSR MoveSnake               ; If yes, move the snake
+  LDX #00                     ; Then reset the counter to 0
   STX ptr_FRAME_COUNTER
-  JSR MoveSnake               ; Then move the snake
 TickNextFrame:
   ; Tick the frame counter
   INC ptr_FRAME_COUNTER       ; Increment the frame counter
@@ -232,7 +239,9 @@ ReadRightDone:
 ; Begin by calculating the head's new position, then shuffle the head into that position, then the second segment into
 ; the head's former position, then the third segment into the second's former position, etc.
 MoveSnake:
-  LDA ptr_GROW_FLAG           ; Get the current snake tail pointer
+  JSR DetectCollisions
+  LDA ptr_GAME_FLAGS          ; Get the current Game Flags
+  AND #flag_GROW              ; Isolate the Grow Flag
   BEQ ReadNextSnakeDirection  ; If it's 0, then just continue on with shuffling the snake
   PHA                         ; Store the grow flag value for later
 
@@ -379,11 +388,14 @@ UpdateXPosition:
   CPX ptr_SNAKE_TAIL
   BNE MoveSnakeLoop
 
-  LDA ptr_GROW_FLAG           ; Check the grow bit. If we're not growing (the normal case) then just handle the tail
-  BEQ HandleSnakeTail         ; like we would the rest of the body. But, if the grow bit is set, then we've already
-                              ; added the new body segment and the tail should just stay in place.
-  LDA #00                     ; Reset the value of the grow flag to 0
-  STA ptr_GROW_FLAG
+  LDA ptr_GAME_FLAGS          ; Check the grow bit. If we're not growing (the normal case) then just handle the tail
+  AND #flag_GROW              ; like we would the rest of the body. But, if the grow bit is set, then we've already
+  BEQ HandleSnakeTail         ; added the new body segment and the tail should just stay in place.
+                              ; Reset the value of the grow flag to 0
+
+  LDA ptr_GAME_FLAGS          ; Erase the Grow Bit
+  EOR #flag_GROW
+  STA ptr_GAME_FLAGS
 
 HandleSnakeTail:
                               ; Update the Y Position:
@@ -440,6 +452,39 @@ UpdateSnakeDirection:
   LDA ptr_SNAKE_DIR_NXT       ; Now that we're done moving the snake, set the snake's new current direction
   STA ptr_SNAKE_DIR_CUR
 
+  RTS                         ; Return from sub-routine
+; ----------------------------------------------------------------------------------------------------------------------
+
+
+; ----------------------------------------------------------------------------------------------------------------------
+; DETECT COLLISIONS
+; Handles the logic for detecting a collision and then doing something about it.
+; Expected Memory State:
+;   This logic runs before the snake has "actually" moved, so the current Snake Head is not useful. Instead, the snake's
+;   next head position should be stored in the TSSD. The values in the TSSD will be used to detect a collision with the
+;   snake's body, the apple or the world edges.
+DetectCollisions:
+
+  LDA ptr_SNAKE_HEAD_X        ; Start by comparing the X Position of the Snake Head and Apple
+  EOR ptr_APPLE_X
+  STA ptr_COLLISION_FLAG      ; We'll borrow the frame counter because it's reset to 0 once the snake is done moving
+
+  LDA ptr_SNAKE_HEAD_Y        ; Then compare the Y Position of the Snake Head and Apple
+  EOR ptr_APPLE_Y
+
+  ORA ptr_COLLISION_FLAG      ; Then OR them together
+  BEQ HandleAppleCollision    ; If the result is 0, then the snake has eaten the apple
+
+  RTS                         ; No collisions detected: Return from sub-routine
+
+HandleAppleCollision:
+  LDA ptr_GAME_FLAGS          ; Set the Grow Bit
+  ORA #flag_GROW
+  STA ptr_GAME_FLAGS
+
+  RTS                         ; Return from sub-routine
+
+HandleOtherCollision:
   RTS                         ; Return from sub-routine
 ; ----------------------------------------------------------------------------------------------------------------------
 
@@ -575,12 +620,18 @@ NextTileTurnDone:
   .bank 1
   .org $E000
 palette:
-  .db $0F,$31,$32,$33,$0F,$35,$36,$37,$0F,$39,$3A,$3B,$0F,$3D,$3E,$0F
-  .db $0F,$19,$16,$18,$0F,$02,$38,$3C,$0F,$1C,$15,$14,$0F,$02,$38,$3C
+  .db $0F,$31,$32,$33         ; background palette (00)
+  .db $0F,$35,$36,$37         ; background palette (01)
+  .db $0F,$39,$3A,$3B         ; background palette (10)
+  .db $0F,$3D,$3E,$0F         ; background palette (11)
+  .db $0F,$31,$06,$0C         ; snake palette (00)
+  .db $0F,$19,$16,$18         ; apple palette (01)
+  .db $0F,$1C,$15,$14         ; foreground palette (10)
+  .db $0F,$02,$38,$3C         ; foreground palette (11)
 
 sprites:
      ;vert tile attr horiz
-  .db $80, $01, %00000000, $80      ; Apple
+  .db $80, $01, %00000001, $80      ; Apple
   .db $68, $10, %00000000, $80      ; Snake Head
   .db $70, $20, %00000000, $80      ; Snake Body
   .db $78, $30, %00000000, $80      ; Snake Tail
