@@ -17,6 +17,11 @@
 ; * Author: JD Bell
 ; * Created: Feb 24, 2019
 ; **********************************************************************************************************************
+; * Game Constants:
+const_GAME_SPEED EQU 15       ; The frames per movement. 60 is approximately 1 second.
+const_GAME_HEIGHT EQU $E8     ; Screen height / 8 (+1)
+const_GAME_WIDTH EQU $F8      ; Screen width / 8 (+1)
+; **********************************************************************************************************************
 ; * Special Memory Locations:
 ; *   $00 - Frame Counter / Collision Flag - The frame counter is reset to 0 whenever the snake moves, so we can reuse
 ;                                            this memory for calculating coliision types
@@ -47,16 +52,27 @@ ptr_SNAKE_TSSD_ATTR EQU $07
 ;                   +-------- Grow Bit - If 1, the snake should grow by one segment
 ptr_GAME_FLAGS EQU $08
 flag_GROW EQU %00000100
+; *   $09 - Random Number - To keep predictability low, this number is re-generated in the forever loop rather than the
+;                           interrupt. Call GenNextRandom to force it forward
+ptr_RAND EQU $09
+; *   $0A - Score - Basically a count of the number of apples the player has eaten
+ptr_SCORE EQU $0A
 ; *   $0200-$0203 - Apple Sprite
 ; *           $0200 - Apple Y
 ptr_APPLE_Y EQU $0200
 ; *           $0203 - Apple X
 ptr_APPLE_X EQU $0203
 ; *   $0204-$0207 - Snake Head Sprite
-; *           $0200 - Snake Head Y
+; *           $0204 - Snake Head Y
 ptr_SNAKE_HEAD_Y EQU $0204
-; *           $0203 - Snake Head X
+; *           $0207 - Snake Head X
 ptr_SNAKE_HEAD_X EQU $0207
+; *   $02F8-$02FF - Score Sprites
+; *           $02F9 - Score Sprite 1 Tile Index
+ptr_SCORE1_TILE EQU $02F9
+; *           $02FD - Score Sprite 2 Tile Index
+ptr_SCORE2_TILE EQU $02FD
+
 ; *   $4016 - Controller Buttons State - Each read will return a button state then adv to next button
 ptr_BTN_STATE EQU $4016
 ; **********************************************************************************************************************
@@ -144,11 +160,42 @@ InitGame:
   STA ptr_SNAKE_DIR_NXT       ; Set the default direction to Up
   LDA #00
   STA ptr_GAME_FLAGS          ; Set the grow flag to 0
+  LDA #$E0
+  STA $02F8                   ; Score Sprite 1 Y
+  STA $02FC                   ; Score Sprite 2 Y
+  LDA #$40
+  STA $02F9                   ; Score Sprite 1 Tile Index
+  STA $02FD                   ; Score Sprite 2 Tile Index
+  LDA #$00
+  STA $02FA                   ; Score Sprite 1 Tile Attributes
+  STA $02FE                   ; Score Sprite 2 Tile Attributes
+  LDA #$E8
+  STA $02FB                   ; Score Sprite 1 X
+  LDA #$F0
+  STA $02FF                   ; Score Sprite 2 X
 
 Forever:
+  JSR GenNextRandom
   JMP Forever                 ; jump back to Forever, infinite loop
-  
- 
+
+
+
+; ----------------------------------------------------------------------------------------------------------------------
+; GENERATE NEXT RANDOM
+; Generates the next random number and stores it in ptr_RAND
+GenNextRandom:
+  LDA ptr_RAND
+  ASL A
+  ASL A
+  CLC
+  ADC ptr_RAND
+  CLC
+  ADC #03
+  STA ptr_RAND
+  RTS                         ; Return from sub-routine
+; ----------------------------------------------------------------------------------------------------------------------
+
+
 
 ; ----------------------------------------------------------------------------------------------------------------------
 ; NMI
@@ -162,7 +209,7 @@ NMI:
   JSR ReadController          ; Read the controller buttons and set the snake direction
 
   LDX ptr_FRAME_COUNTER       ; Get the frame counter
-  CPX #30                     ; Have 60 frames gone by yet?
+  CPX #const_GAME_SPEED       ; Have enough frames gone by yet?
   BNE TickNextFrame           ; If not, skip to the next frame
   JSR MoveSnake               ; If yes, move the snake
   LDX #00                     ; Then reset the counter to 0
@@ -481,6 +528,37 @@ HandleAppleCollision:
   LDA ptr_GAME_FLAGS          ; Set the Grow Bit
   ORA #flag_GROW
   STA ptr_GAME_FLAGS
+  JSR UpdateScore
+
+GetNewAppleX:
+  JSR GenNextRandom           ; Generate a random number
+  LDA ptr_RAND                ; Get the random number
+  ASL A                       ; Multiply by 8 to get the Apple's next X Position
+  ASL A
+  ASL A
+  CLC
+  ADC #08
+  CLC
+  CMP #const_GAME_WIDTH
+  BCC SetNewAppleX            ; If the new X position is on-screen, then store it and move on to Y
+  JMP GetNewAppleX            ; Otherwise, try getting another X value
+SetNewAppleX:
+  STA ptr_APPLE_X
+
+GetNewAppleY:
+  JSR GenNextRandom           ; Generate a random number
+  LDA ptr_RAND                ; Get the random number
+  ASL A                       ; Multiply by 8 to get the Apple's next Y Position
+  ASL A
+  ASL A
+  CLC
+  ADC #08
+  CLC
+  CMP #const_GAME_HEIGHT
+  BCC SetNewAppleY            ; If the new Y position is on-screen, then store it and finish
+  JMP GetNewAppleY            ; Otherwise, try getting another Y value
+SetNewAppleY:
+  STA ptr_APPLE_Y
 
   RTS                         ; Return from sub-routine
 
@@ -617,6 +695,31 @@ NextTileTurnDone:
 
 
 
+; ----------------------------------------------------------------------------------------------------------------------
+; UPDATE SCORE
+; Print the score on the bottom right corner of the screen
+UpdateScore:
+  INC ptr_SCORE
+  LDA ptr_SCORE
+  PHA
+  AND #%00001111
+  CLC
+  ADC #$40
+  STA ptr_SCORE2_TILE
+  PLA
+  AND #%11110000
+  LSR A
+  LSR A
+  LSR A
+  LSR A
+  CLC
+  ADC #$40
+  STA ptr_SCORE1_TILE
+  RTS                         ; Return from sub-routine
+; ----------------------------------------------------------------------------------------------------------------------
+
+
+
   .bank 1
   .org $E000
 palette:
@@ -625,7 +728,7 @@ palette:
   .db $0F,$39,$3A,$3B         ; background palette (10)
   .db $0F,$3D,$3E,$0F         ; background palette (11)
   .db $0F,$31,$06,$0C         ; snake palette (00)
-  .db $0F,$19,$16,$18         ; apple palette (01)
+  .db $0F,$29,$16,$18         ; apple palette (01)
   .db $0F,$1C,$15,$14         ; foreground palette (10)
   .db $0F,$02,$38,$3C         ; foreground palette (11)
 
