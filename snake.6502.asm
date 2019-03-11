@@ -286,13 +286,78 @@ ReadRightDone:
 ; Begin by calculating the head's new position, then shuffle the head into that position, then the second segment into
 ; the head's former position, then the third segment into the second's former position, etc.
 MoveSnake:
-  JSR DetectCollisions
+ReadNextSnakeDirection:
+  LDY ptr_SNAKE_DIR_NXT       ; Get the next direction to move the snake
+  CPY #01                     ; 1 = Up
+  BEQ MoveSnakeUp
+  CPY #02                     ; 2 = Down
+  BEQ MoveSnakeDown
+  CPY #03                     ; 3 = Left
+  BEQ MoveSnakeLeft
+                              ; Anything else = Right (4 is assumed)
+
+MoveSnakeRight:
+  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD,
+  CLC
+  ADC #08                     ; Adding 8 Pixels
+  STA ptr_SNAKE_TSSD_X
+  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD
+  STA ptr_SNAKE_TSSD_Y
+  LDA #$11                    ; Use the Left-Right Snake Head
+  STA ptr_SNAKE_TSSD_TILE
+  LDA #%01000000              ; Turn the head rightward
+  STA ptr_SNAKE_TSSD_ATTR
+  JMP UpdateGameState
+MoveSnakeDown:
+  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD
+  STA ptr_SNAKE_TSSD_X
+  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD,
+  CLC
+  ADC #08                     ; Adding 8 Pixels
+  STA ptr_SNAKE_TSSD_Y
+  LDA #$10                    ; Use the Up-Down Snake Head
+  STA ptr_SNAKE_TSSD_TILE
+  LDA #%10000000              ; Turn the head downward
+  STA ptr_SNAKE_TSSD_ATTR
+  JMP UpdateGameState
+MoveSnakeUp:
+  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD
+  STA ptr_SNAKE_TSSD_X
+  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD,
+  SBC #08                     ; Subtracting 8 Pixels
+  STA ptr_SNAKE_TSSD_Y
+  LDA #$10                    ; Use the Up-Down Snake Head
+  STA ptr_SNAKE_TSSD_TILE
+  LDA #%00000000              ; Turn the head upward
+  STA ptr_SNAKE_TSSD_ATTR
+  JMP UpdateGameState
+MoveSnakeLeft:
+  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD,
+  SBC #08                     ; Subtracting 8 Pixels
+  STA ptr_SNAKE_TSSD_X
+  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD
+  STA ptr_SNAKE_TSSD_Y
+  LDA #$11                    ; Use the Left-Right Snake Head
+  STA ptr_SNAKE_TSSD_TILE
+  LDA #%00000000              ; Turn the head leftward
+  STA ptr_SNAKE_TSSD_ATTR
+
+UpdateGameState:              ; Now that we know where the snake is about to move, we can update the game state
+  JSR DetectCollisions        ; Check for collisions
   LDA ptr_GAME_FLAGS          ; Get the current Game Flags
   AND #flag_GROW              ; Isolate the Grow Flag
-  BEQ ReadNextSnakeDirection  ; If it's 0, then just continue on with shuffling the snake
+  BEQ MoveSnakeInit           ; If it's 0, then just continue on with shuffling the snake
   PHA                         ; Store the grow flag value for later
 
-GrowSnake:
+  LDA ptr_SNAKE_TSSD_Y        ; We need to keep a copy the new head sprite while we work on updating the tail
+  PHA
+  LDA ptr_SNAKE_TSSD_TILE
+  PHA
+  LDA ptr_SNAKE_TSSD_ATTR
+  PHA
+  LDA ptr_SNAKE_TSSD_X
+  PHA
+
   LDX ptr_SNAKE_TAIL          ; Kick off X at the snake tail offset
   LDA ptr_SNAKE_HEAD_Y, X     ; Copy the tail sprite info to seed the new tail
   STA ptr_SNAKE_TSSD_Y
@@ -319,69 +384,27 @@ GrowSnake:
   LDA ptr_SNAKE_TSSD_X        ; Seed the new tail X
   STA ptr_SNAKE_HEAD_Y, X
 
+  PLA                         ; Now we need to restore the new head sprite before we finish
+  STA ptr_SNAKE_TSSD_X
+  PLA
+  STA ptr_SNAKE_TSSD_ATTR
+  PLA
+  STA ptr_SNAKE_TSSD_TILE
+  PLA
+  STA ptr_SNAKE_TSSD_Y
+
   PLA                         ; Retrieve the grow flag value from earlier
   CLC
   ADC ptr_SNAKE_TAIL          ; Add the grow flag value (4) to the snake tail pointer and set tail pointer to the result
   STA ptr_SNAKE_TAIL          ; This is how we grow the snake's sprite array
 
+;  LDA ptr_SNAKE_TAIL
+;  CLC
+;  ADC #04                     ; Increase the tail pointer offset by 4 bytes (1 new segment sprite) and store the result.
+;  STA ptr_SNAKE_TAIL          ; This is how we grow the snake's sprite array
 
-ReadNextSnakeDirection:
+MoveSnakeInit:
   LDX #00                     ; Prime the loop counter
-
-  LDY ptr_SNAKE_DIR_NXT       ; Get the next direction to move the snake
-  CPY #01                     ; 1 = Up
-  BEQ MoveSnakeUp
-  CPY #02                     ; 2 = Down
-  BEQ MoveSnakeDown
-  CPY #03                     ; 3 = Left
-  BEQ MoveSnakeLeft
-                              ; Anything else = Right (4 is assumed)
-
-MoveSnakeRight:
-  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD,
-  CLC
-  ADC #08                     ; Adding 8 Pixels
-  STA ptr_SNAKE_TSSD_X
-  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD
-  STA ptr_SNAKE_TSSD_Y
-  LDA #$11                    ; Use the Left-Right Snake Head
-  STA ptr_SNAKE_TSSD_TILE
-  LDA #%01000000              ; Turn the head rightward
-  STA ptr_SNAKE_TSSD_ATTR
-  JMP MoveSnakeLoop
-MoveSnakeDown:
-  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD
-  STA ptr_SNAKE_TSSD_X
-  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD,
-  CLC
-  ADC #08                     ; Adding 8 Pixels
-  STA ptr_SNAKE_TSSD_Y
-  LDA #$10                    ; Use the Up-Down Snake Head
-  STA ptr_SNAKE_TSSD_TILE
-  LDA #%10000000              ; Turn the head downward
-  STA ptr_SNAKE_TSSD_ATTR
-  JMP MoveSnakeLoop
-MoveSnakeUp:
-  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD
-  STA ptr_SNAKE_TSSD_X
-  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD,
-  SBC #08                     ; Subtracting 8 Pixels
-  STA ptr_SNAKE_TSSD_Y
-  LDA #$10                    ; Use the Up-Down Snake Head
-  STA ptr_SNAKE_TSSD_TILE
-  LDA #%00000000              ; Turn the head upward
-  STA ptr_SNAKE_TSSD_ATTR
-  JMP MoveSnakeLoop
-MoveSnakeLeft:
-  LDA ptr_SNAKE_HEAD_X        ; Copy the Snake's current X Position into TSSD,
-  SBC #08                     ; Subtracting 8 Pixels
-  STA ptr_SNAKE_TSSD_X
-  LDA ptr_SNAKE_HEAD_Y        ; Copy the Snake's current Y Position into TSSD
-  STA ptr_SNAKE_TSSD_Y
-  LDA #$11                    ; Use the Left-Right Snake Head
-  STA ptr_SNAKE_TSSD_TILE
-  LDA #%00000000              ; Turn the head leftward
-  STA ptr_SNAKE_TSSD_ATTR
 
 MoveSnakeLoop:                ; Shuffle the segments
 
@@ -512,11 +535,11 @@ UpdateSnakeDirection:
 ;   snake's body, the apple or the world edges.
 DetectCollisions:
 
-  LDA ptr_SNAKE_HEAD_X        ; Start by comparing the X Position of the Snake Head and Apple
+  LDA ptr_SNAKE_TSSD_X        ; Start by comparing the X Position of the Snake Head and Apple
   EOR ptr_APPLE_X
   STA ptr_COLLISION_FLAG      ; We'll borrow the frame counter because it's reset to 0 once the snake is done moving
 
-  LDA ptr_SNAKE_HEAD_Y        ; Then compare the Y Position of the Snake Head and Apple
+  LDA ptr_SNAKE_TSSD_Y        ; Then compare the Y Position of the Snake Head and Apple
   EOR ptr_APPLE_Y
 
   ORA ptr_COLLISION_FLAG      ; Then OR them together
